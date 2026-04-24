@@ -1,21 +1,27 @@
-import requests
+import os
+import threading
 import time
+import requests
+from flask import Flask
 
-TOKEN = "360729900:nkuhQxqh3Xt0fLqgo-9ABBbxWBbgi8yobsE"  # ← توکن ربات بله‌ات را اینجا بگذار
+TOKEN = "360729900:nkuhQxqh3Xt0fLqgo-9ABBbxWBbgi8yobsE"  # ← توکن ربات بله
 BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}/"
 
+app = Flask(__name__)
 
+
+# -----------------------------
+#      Bale API FUNCTIONS
+# -----------------------------
 def get_updates(offset=None, timeout=20):
     url = BASE_URL + "getUpdates"
-    params = {
-        "timeout": timeout,
-    }
-    if offset is not None:
+    params = {"timeout": timeout}
+    if offset:
         params["offset"] = offset
+
     try:
-        resp = requests.get(url, params=params, timeout=timeout + 5)
-        data = resp.json()
-        return data.get("result", [])
+        r = requests.get(url, params=params, timeout=timeout + 5)
+        return r.json().get("result", [])
     except Exception as e:
         print("get_updates error:", e)
         return []
@@ -23,61 +29,76 @@ def get_updates(offset=None, timeout=20):
 
 def send_message(chat_id, text):
     url = BASE_URL + "sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-    }
     try:
-        resp = requests.post(url, json=payload, timeout=10)
-        if resp.status_code != 200:
-            print("send_message failed:", resp.status_code, resp.text)
+        r = requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=10)
+        if r.status_code != 200:
+            print("send_message failed:", r.status_code, r.text)
     except Exception as e:
         print("send_message error:", e)
 
 
-def handle_text(text: str) -> str:
+def handle_text(text):
     t = text.strip().lower()
 
-    if t in ["سلام", "salam", "hi", "hello"]:
+    if t in ["سلام", "hi", "hello", "salam"]:
         return "سلام 👋"
-    if "چطوری" in t or "چطوري" in t:
+
+    if "چطوری" in t:
         return "خوبم، تو چطوری؟"
-    if "خوبی" in t or "خوبي" in t:
+
+    if "خوبی" in t:
         return "مرسی، خوبم 😊"
 
-    return "من یک ربات تست ساده‌ام. منو امیرعلی((@amiralinmp)) ساختههههههه!. بگو «سلام» یا «چطوری» 🙂"
+    return "من یک ربات تست ساده‌ام. بگو «سلام» یا «چطوری» 🙂"
 
 
-def main():
-    print("Bale test bot started...")
+# -----------------------------
+#        BOT LOOP
+# -----------------------------
+def bot_loop():
+    print("Bot polling loop started...")
     last_update_id = None
 
     while True:
-        updates = get_updates(offset=last_update_id, timeout=20)
+        updates = get_updates(offset=last_update_id)
+
         for upd in updates:
-            # update_id
-            update_id = upd.get("update_id")
-            if update_id is not None:
-                last_update_id = update_id + 1
+            last_update_id = upd.get("update_id", last_update_id)
+            if last_update_id:
+                last_update_id += 1
 
-            message = upd.get("message")
-            if not message:
+            msg = upd.get("message")
+            if not msg:
                 continue
 
-            chat = message.get("chat", {})
-            chat_id = chat.get("id")
-            text = message.get("text")
+            text = msg.get("text")
+            chat_id = msg.get("chat", {}).get("id")
 
-            if chat_id is None or text is None:
+            if not text or not chat_id:
                 continue
 
-            print(f"Received from {chat_id}: {text}")
+            print(f"[Bale] {chat_id}: {text}")
             reply = handle_text(text)
             send_message(chat_id, reply)
 
-        # برای اینکه لوپ دیوانه‌وار سریع نچرخد
         time.sleep(1)
 
 
+# -----------------------------
+#        FLASK SERVER
+# -----------------------------
+@app.route("/")
+def home():
+    return "Bale bot is running on Render ✓"
+
+
+# -----------------------------
+#         ENTRY POINT
+# -----------------------------
 if __name__ == "__main__":
-    main()
+    # Start bot loop in a background thread
+    threading.Thread(target=bot_loop, daemon=True).start()
+
+    # Run Flask web server so Render sees an open port
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
