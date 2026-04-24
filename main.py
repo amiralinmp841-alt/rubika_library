@@ -14,4 +14,3 @@ try:
     print("Response:", r.text)
 except Exception as e:
     print("Error:", e)
-`
